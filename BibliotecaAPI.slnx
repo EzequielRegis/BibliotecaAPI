@@ -1,3 +1,5 @@
 <Solution>
-  <Project Path="BibliotecaAPI/BibliotecaAPI.csproj" />
+  <Project Path="BibliotecaAPI.Client/BibliotecaAPI.Client.csproj" Id="b2d12b6b-ec1a-4fb1-b12a-1c5bc6a6ba6c" />
+  <Project Path="BibliotecaAPI/BibliotecaAPI.Server.csproj" />
+  <Project Path="Unit Test/Unit Test.csproj" Id="04c6dddd-73c4-4bc7-9f32-e917ddf62a24" />
 </Solution>

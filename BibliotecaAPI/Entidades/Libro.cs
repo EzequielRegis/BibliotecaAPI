@@ -1,11 +1,13 @@
-﻿namespace BibliotecaAPI.Entidades;
+﻿
+namespace BibliotecaAPI.Entidades;
 
-public class Libro
+public class Libro : EntidadBase
 {
-    public int Id { get; set; }
-    public string Titulo { get; set; }
-    public string Autor { get; set; }
-    public bool Disponible { get; set; }
+    public string Titulo { get; set; } = null!;
+    public string Autor { get; set; } = "Autor desconocido";
 
-    public ICollection<Prestamo> Prestamos { get; set; } = new List<Prestamo>();
+    public ICollection<Ejemplar> Ejemplares { get; set; }
+        = new List<Ejemplar>();
+
+    
 }

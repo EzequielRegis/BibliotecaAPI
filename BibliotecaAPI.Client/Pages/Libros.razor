@@ -1,0 +1,313 @@
+﻿@page "/libros"
+@using System.Net.Http.Json
+@using BibliotecaAPI.Client.DTOs
+@inject HttpClient Http
+
+<PageTitle>Libros</PageTitle>
+
+<h1>Catálogo de libros</h1>
+
+<hr />
+
+<h3>Libros registrados</h3>
+
+@if (!string.IsNullOrWhiteSpace(errorCarga))
+{
+    <p class="text-danger">@errorCarga</p>
+}
+else if (libros == null)
+{
+    <p>Cargando libros...</p>
+}
+else if (libros.Count == 0)
+{
+    <p>No hay libros registrados.</p>
+}
+else
+{
+    <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+        <table class="table table-striped align-middle">
+            <thead>
+                <tr>
+                    <th>Título</th>
+                    <th>Autor</th>
+                    <th>Total de ejemplares</th>
+                    <th>Disponibles</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var libro in libros)
+                {
+                    <tr>
+                        <td>@libro.Titulo</td>
+                        <td>@libro.Autor</td>
+                        <td>@libro.CantidadEjemplares</td>
+                        <td>
+                            @if (libro.EjemplaresDisponibles > 0)
+                            {
+                                <span class="text-success fw-bold">
+                                    @libro.EjemplaresDisponibles disponibles
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="text-danger fw-bold">
+                                    Ninguno disponible
+                                </span>
+                            }
+                        </td>
+                        <td>
+                            <button type="button"
+                                    class="btn p-0 text-danger fw-bold border-0"
+                                    style="font-size: 1.4rem; line-height: 1; text-decoration: none;"
+                                    title="Eliminar libro"
+                                    @onclick="() => SolicitarEliminar(libro.Id)">
+                                ×
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+
+<div style="max-width: 350px; width: 100%; margin: 100px auto 0;">
+    <h3 class="mt-4">Agregar libro</h3>
+<EditForm Model="nuevoLibro" OnValidSubmit="AgregarLibro">
+    <div class="mb-3">
+        <label class="form-label">Título</label>
+        <InputText class="form-control"
+                   style="width: 200px; max-width: 100%;"
+                   @bind-Value="nuevoLibro.Titulo" />
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">Autor</label>
+        <InputText class="form-control"
+                   style="width: 200px; max-width: 100%;"
+                   @bind-Value="nuevoLibro.Autor" />
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">Cantidad de ejemplares</label>
+            <InputNumber class="form-control"
+                         style="width: 200px; max-width: 100%;"
+                         @bind-Value="nuevoLibro.CantidadEjemplares"
+                         min="1"
+                         step="1" />
+
+    </div>
+
+    <button type="submit"
+            class="btn btn-primary"
+            disabled="@guardando">
+        @(guardando ? "Guardando..." : "Agregar libro")
+    </button>
+</EditForm>
+
+@if (!string.IsNullOrWhiteSpace(mensaje))
+{
+    <p class="mt-3">@mensaje</p>
+}
+</div>
+@if (mostrarModalEliminar)
+{
+    <div class="modal-fondo">
+        <div class="modal-confirmacion">
+            <h4>Eliminar libro</h4>
+
+            <p>
+                ¿Estás seguro de que querés eliminar
+                <strong>@tituloLibroAEliminar</strong>?
+            </p>
+
+            <p class="text-danger">
+                Esta acción no se puede deshacer.
+            </p>
+
+            <div class="d-flex justify-content-end gap-2">
+                <button type="button"
+                        class="btn btn-secondary"
+                        @onclick="CancelarEliminar"
+                        disabled="@eliminando">
+                    Cancelar
+                </button>
+
+                <button type="button"
+                        class="btn btn-danger"
+                        @onclick="ConfirmarEliminar"
+                        disabled="@eliminando">
+                    @(eliminando ? "Eliminando..." : "Eliminar")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+
+
+@code {
+    private List<LibroDto>? libros;
+    private LibroDto nuevoLibro = new()
+    {
+        CantidadEjemplares = 1
+    };
+    private string errorCarga = "";
+    private string mensaje = "";
+    private bool guardando = false;
+
+    private bool mostrarModalEliminar = false;
+    private bool eliminando = false;
+    private int? libroIdAEliminar;
+    private string tituloLibroAEliminar = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarLibros();
+    }
+
+ 
+    
+    private async Task CargarLibros()
+    {
+        errorCarga = "";
+
+        try
+        {
+            libros = await Http.GetFromJsonAsync<List<LibroDto>>(
+                "api/Libros") ?? new List<LibroDto>();
+        }
+        catch (HttpRequestException)
+        {
+            libros = null;
+            errorCarga = "No se pudo conectar con el servidor al cargar los libros.";
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            libros = null;
+            errorCarga = "El servidor devolvió una respuesta que no se pudo leer.";
+        }
+        catch (Exception ex)
+        {
+            libros = null;
+            errorCarga = $"Error inesperado al cargar libros: {ex.Message}";
+        }
+    }
+
+
+    private async Task AgregarLibro()
+    {
+        if (string.IsNullOrWhiteSpace(nuevoLibro.Titulo))
+        {
+            mensaje = "Ingresá el título del libro.";
+            return;
+        }
+
+        
+
+        if (nuevoLibro.CantidadEjemplares < 1)
+        {
+            mensaje = "Tenés que registrar al menos un ejemplar.";
+            return;
+        }
+
+        guardando = true;
+        mensaje = "";
+
+        try
+        {
+            var respuesta = await Http.PostAsJsonAsync(
+                "api/Libros",
+                new
+                {
+                    nuevoLibro.Titulo,
+                    nuevoLibro.Autor,
+                    nuevoLibro.CantidadEjemplares
+                });
+
+            if (respuesta.IsSuccessStatusCode)
+            {
+                nuevoLibro = new LibroDto
+                {
+                    CantidadEjemplares = 1
+                };
+
+                await CargarLibros();
+
+                if (string.IsNullOrWhiteSpace(mensaje))
+                {
+                    mensaje = "Libro agregado correctamente.";
+                }
+            }
+        }
+        catch (HttpRequestException)
+        {
+            mensaje = "No se pudo conectar con el servidor.";
+        }
+        finally
+        {
+            guardando = false;
+        }
+    }
+
+    private void SolicitarEliminar(int id)
+    {
+        libroIdAEliminar = id;
+
+        var libro = libros?.FirstOrDefault(l => l.Id == id);
+        tituloLibroAEliminar = libro?.Titulo ?? "este libro";
+
+        mostrarModalEliminar = true;
+    }
+
+    private void CancelarEliminar()
+    {
+        mostrarModalEliminar = false;
+        libroIdAEliminar = null;
+        tituloLibroAEliminar = "";
+    }
+
+    private async Task ConfirmarEliminar()
+    {
+        if (libroIdAEliminar is null)
+            return;
+
+        eliminando = true;
+        mensaje = "";
+
+        try
+        {
+            var respuesta = await Http.DeleteAsync(
+                $"api/Libros/{libroIdAEliminar.Value}");
+
+            if (respuesta.IsSuccessStatusCode)
+            {
+                mensaje = "Libro eliminado correctamente.";
+
+                mostrarModalEliminar = false;
+                libroIdAEliminar = null;
+                tituloLibroAEliminar = "";
+
+                await CargarLibros();
+            }
+            else
+            {
+                var error = await respuesta.Content.ReadAsStringAsync();
+                mensaje = $"No se pudo eliminar el libro. {error}";
+            }
+        }
+        catch (HttpRequestException)
+        {
+            mensaje = "No se pudo conectar con el servidor.";
+        }
+        finally
+        {
+            eliminando = false;
+        }
+
+    }
+
+}

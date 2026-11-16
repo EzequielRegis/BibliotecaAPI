@@ -1,0 +1,174 @@
+﻿@page "/"
+@using System.Net.Http.Json
+@using BibliotecaAPI.Client.DTOs
+@inject HttpClient Http
+
+<PageTitle>Biblioteca | Inicio</PageTitle>
+
+<div class="container mt-4">
+    <h1>📚 Biblioteca</h1>
+    <p>Bienvenido al sistema de gestión de la biblioteca.</p>
+
+    @if (cargando)
+    {
+        <p>Cargando información...</p>
+    }
+    else if (!string.IsNullOrEmpty(mensajeError))
+    {
+        <div class="alert alert-danger">@mensajeError</div>
+        <button class="btn btn-outline-primary" @onclick="CargarDatos">
+            Reintentar
+        </button>
+    }
+    else
+    {
+        <div class="row g-4 mt-2">
+            <div class="col-md-6">
+                <div class="card shadow-sm h-100">
+                    <div class="card-body">
+                        <h5 class="card-title">📚 Ejemplares disponibles</h5>
+                        <p class="fs-2 fw-bold mb-0">
+                            @totalEjemplaresDisponibles
+                        </p>
+                        <p class="text-muted">
+                            En @librosDisponibles.Count títulos diferentes
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <div class="card shadow-sm h-100">
+                    <div class="card-body">
+                        <h5 class="card-title">📝 Préstamos activos</h5>
+                        <p class="fs-2 fw-bold mb-0">
+                            @prestamosActivos.Count
+                        </p>
+                        <p class="text-muted">Pendientes de devolución</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <hr class="my-4" />
+
+        <h3>📖 Libros disponibles</h3>
+
+        @if (librosDisponibles.Count == 0)
+        {
+            <div class="alert alert-info">
+                No hay ejemplares disponibles en este momento.
+            </div>
+        }
+        else
+        {
+            <div class="row g-3 mb-4">
+                @foreach (var libro in librosDisponibles)
+                {
+                    <div class="col-md-6 col-lg-4" @key="libro.Id">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h5 class="card-title">@libro.Titulo</h5>
+                                <p class="card-text text-muted mb-2">
+                                    Autor: @libro.Autor
+                                </p>
+                                <span class="badge bg-success">
+                                    @libro.EjemplaresDisponibles disponibles
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+
+        <hr class="my-4" />
+
+        <h3>📝 Préstamos activos</h3>
+
+        @if (prestamosActivos.Count == 0)
+        {
+            <div class="alert alert-info">
+                No hay préstamos pendientes de devolución.
+            </div>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-striped align-middle">
+                    <thead>
+                        <tr>
+                            <th>Libro</th>
+                            <th>Lector</th>
+                            <th>Fecha del préstamo</th>
+                            <th>Devolución prevista</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var prestamo in prestamosActivos)
+                        {
+                            <tr @key="prestamo.Id">
+                                <td>@prestamo.TituloLibro</td>
+                                <td>@prestamo.NombreLector</td>
+                                <td>@prestamo.FechaPrestamo.ToString("dd/MM/yyyy")</td>
+                                <td>@prestamo.FechaDevolucionPrevista.ToString("dd/MM/yyyy")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private List<LibroDto> libros = new();
+    private List<PrestamoDto> prestamos = new();
+
+    private bool cargando = true;
+    private string mensajeError = "";
+
+    private List<LibroDto> librosDisponibles =>
+        libros.Where(libro => libro.EjemplaresDisponibles > 0).ToList();
+
+    private List<PrestamoDto> prestamosActivos =>
+        prestamos.Where(prestamo => !prestamo.EsDevuelto).ToList();
+
+    private int totalEjemplaresDisponibles =>
+        libros.Sum(libro => libro.EjemplaresDisponibles);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarDatos();
+    }
+
+    private async Task CargarDatos()
+    {
+        cargando = true;
+        mensajeError = "";
+
+        try
+        {
+            var librosObtenidos = await Http.GetFromJsonAsync<List<LibroDto>>(
+                "api/Libros");
+
+            var prestamosObtenidos = await Http.GetFromJsonAsync<List<PrestamoDto>>(
+                "api/Prestamos");
+
+            libros = librosObtenidos ?? new List<LibroDto>();
+            prestamos = prestamosObtenidos ?? new List<PrestamoDto>();
+        }
+        catch (HttpRequestException)
+        {
+            mensajeError = "No se pudieron cargar los datos. Verificá que el servidor esté funcionando.";
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            mensajeError = "La API devolvió datos con un formato inesperado.";
+        }
+        finally
+        {
+            cargando = false;
+        }
+    }
+}

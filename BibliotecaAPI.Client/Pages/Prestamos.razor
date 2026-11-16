@@ -1,0 +1,513 @@
+﻿@page "/prestamos"
+@using System.Net.Http.Json
+@using System.Text.Json
+@using BibliotecaAPI.Client.DTOs
+@inject HttpClient Http
+
+<PageTitle>Biblioteca | Préstamos</PageTitle>
+
+<div class="container mt-4">
+    <h1>📚 Préstamos</h1>
+    <p>Registrá y consultá los préstamos de la biblioteca.</p>
+
+    <div class="alert alert-info mt-3">
+        <strong>Información sobre los préstamos</strong>
+        <ul class="mb-0 mt-2">
+            <li>El plazo de préstamo es de 14 días desde la fecha y hora de registro.</li>
+            <li>La multa es de $ 5.000 por cada período completo de 24 horas de atraso.</li>
+            <li>El cálculo de la multa comienza a partir de la fecha y hora de devolución prevista.</li>
+        </ul>
+    </div>
+
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+        <h3 class="mb-0">Préstamos registrados (@prestamosFiltrados.Count)</h3>
+
+        <select class="form-select"
+                style="max-width: 200px;"
+                @bind="filtroEstado">
+            <option value="Todos">Todos</option>
+            <option value="Activos">Activos</option>
+            <option value="Devueltos">Devueltos</option>
+        </select>
+    </div>
+
+    @if (prestamos.Count == 0)
+    {
+        <p>No hay préstamos registrados.</p>
+    }
+    else if (prestamosFiltrados.Count == 0)
+    {
+        <p>No hay préstamos para el filtro seleccionado.</p>
+    }
+    else
+    {
+        <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+            <table class="table table-striped align-middle">
+                <thead>
+                    <tr>
+                        <th>Libro</th>
+                        <th>Lector</th>
+                        <th>Fecha de préstamo</th>
+                        <th>Devolución prevista</th>
+                        <th>Devolución real</th>
+                        <th>Multa</th>
+                        <th>Estado</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var prestamo in prestamosFiltrados)
+                    {
+                        <tr>
+                            <td>@prestamo.TituloLibro</td>
+                            <td>@prestamo.NombreLector</td>
+                            <td>@prestamo.FechaPrestamo.ToString("dd/MM/yyyy HH:mm")</td>
+                            <td>@prestamo.FechaDevolucionPrevista.ToString("dd/MM/yyyy HH:mm")</td>
+                            <td>
+                                @(prestamo.FechaDevolucionReal.HasValue
+                                    ? prestamo.FechaDevolucionReal.Value.ToString("dd/MM/yyyy HH:mm")
+                                    : "-")
+                            </td>
+                            <td>
+                                $ @prestamo.Multa.ToString(
+                                                                                                    "N2",
+                                                                                                    System.Globalization.CultureInfo.GetCultureInfo("es-AR"))
+                            </td>
+                            <td>
+                                @if (prestamo.EsDevuelto)
+                                {
+                                    <span class="badge bg-success">Devuelto</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-warning text-dark">Activo</span>
+                                    <button class="btn btn-sm btn-success ms-2"
+                                            @onclick="() => DevolverPrestamo(prestamo.Id)">
+                                        Devolver
+                                    </button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    <div style="max-width: 400px; width: 100%; margin: 40px auto 0;">
+        <h3>Registrar préstamo</h3>
+
+        <div class="mb-3">
+            <label class="form-label">Libro</label>
+            <select class="form-select" @bind="libroSeleccionadoId">
+                <option value="0">Seleccioná un libro</option>
+                @foreach (var libro in libros)
+                {
+                    <option value="@libro.Id"
+                            disabled="@(libro.EjemplaresDisponibles == 0)">
+                        @libro.Titulo (@libro.EjemplaresDisponibles disponibles)
+                    </option>
+                }
+            </select>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Cantidad de ejemplares</label>
+            <input type="number"
+                   class="form-control"
+                   @bind="cantidadSeleccionada"
+                   min="1" />
+        </div>
+
+        <button class="btn btn-outline-primary"
+                @onclick="AgregarLibro">
+            Agregar libro
+        </button>
+
+        @if (librosSeleccionados.Count > 0)
+        {
+            <h5 class="mt-3">Libros seleccionados</h5>
+
+            <ul class="list-group mb-3">
+                @foreach (var seleccionado in librosSeleccionados)
+                {
+                    var libro = libros.FirstOrDefault(
+                        l => l.Id == seleccionado.LibroId);
+
+                    if (libro != null)
+                    {
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <span>
+                                @libro.Titulo
+                                <span class="badge bg-primary rounded-pill">
+                                    @seleccionado.Cantidad
+                                    @(seleccionado.Cantidad == 1 ? "ejemplar" : "ejemplares")
+                                </span>
+                            </span>
+
+                            <button class="btn btn-sm btn-outline-danger"
+                                    @onclick="() => QuitarLibro(seleccionado.LibroId)">
+                                Quitar
+                            </button>
+                        </li>
+                    }
+                }
+            </ul>
+        }
+
+        <div class="mb-3">
+            <label class="form-label">Lector</label>
+            <select class="form-select" @bind="lectorSeleccionadoId">
+                <option value="0">Seleccioná un lector</option>
+                @foreach (var lector in lectores)
+                {
+                    <option value="@lector.Id">
+                        @lector.Nombre - DNI: @lector.DNI
+                    </option>
+                }
+            </select>
+        </div>
+
+        <button class="btn btn-primary"
+                @onclick="RegistrarPrestamo"
+                disabled="@registrando">
+            @(registrando ? "Registrando..." : "Registrar préstamos")
+        </button>
+
+        @if (!string.IsNullOrWhiteSpace(mensaje))
+        {
+            <div class="alert @(esError ? "alert-danger" : "alert-info") mt-3"
+                 role="alert">
+                @mensaje
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private List<LibroDto> libros = new();
+    private List<LectorDto> lectores = new();
+    private List<PrestamoDto> prestamos = new();
+
+    private class LibroSeleccionado
+    {
+        public int LibroId { get; set; }
+        public int Cantidad { get; set; } = 1;
+    }
+
+    private List<LibroSeleccionado> librosSeleccionados = new();
+
+    private int libroSeleccionadoId;
+    private int lectorSeleccionadoId;
+    private int cantidadSeleccionada = 1;
+
+    private string mensaje = "";
+    private bool esError;
+    private bool registrando;
+    private string filtroEstado = "Todos";
+
+    private List<PrestamoDto> prestamosFiltrados =>
+        filtroEstado switch
+        {
+            "Activos" => prestamos.Where(p => !p.EsDevuelto).ToList(),
+            "Devueltos" => prestamos.Where(p => p.EsDevuelto).ToList(),
+            _ => prestamos
+        };
+
+    private void AgregarLibro()
+    {
+        esError = false;
+
+        if (libroSeleccionadoId == 0)
+        {
+            MostrarMensaje("Seleccioná un libro.", true);
+            return;
+        }
+
+        if (cantidadSeleccionada < 1)
+        {
+            MostrarMensaje("La cantidad debe ser al menos 1.", true);
+            return;
+        }
+
+        var libro = libros.FirstOrDefault(
+            l => l.Id == libroSeleccionadoId);
+
+        if (libro == null)
+        {
+            MostrarMensaje("No se encontró el libro seleccionado.", true);
+            return;
+        }
+
+        var existente = librosSeleccionados.FirstOrDefault(
+            l => l.LibroId == libroSeleccionadoId);
+
+        var cantidadActual = existente?.Cantidad ?? 0;
+
+      
+        
+        if (cantidadActual + cantidadSeleccionada > libro.EjemplaresDisponibles)
+        {
+            string textoEjemplares = libro.EjemplaresDisponibles == 1
+                ? "ejemplar"
+                : "ejemplares";
+
+            string textoDisponibles = libro.EjemplaresDisponibles == 1
+                ? "disponible"
+                : "disponibles";
+
+            MostrarMensaje(
+                $"Solo hay {libro.EjemplaresDisponibles} {textoEjemplares} {textoDisponibles} de '{libro.Titulo}'.",
+                true);
+
+            return;
+        }
+
+
+        if (existente != null)
+        {
+            existente.Cantidad += cantidadSeleccionada;
+        }
+        else
+        {
+            librosSeleccionados.Add(new LibroSeleccionado
+            {
+                LibroId = libroSeleccionadoId,
+                Cantidad = cantidadSeleccionada
+            });
+        }
+
+        mensaje = "";
+        esError = false;
+        libroSeleccionadoId = 0;
+        cantidadSeleccionada = 1;
+    }
+
+    private void QuitarLibro(int libroId)
+    {
+        var libro = librosSeleccionados.FirstOrDefault(
+            l => l.LibroId == libroId);
+
+        if (libro != null)
+        {
+            librosSeleccionados.Remove(libro);
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarDatos();
+    }
+
+   
+    private async Task CargarDatos()
+    {
+        try
+        {
+            libros = await Http.GetFromJsonAsync<List<LibroDto>>("api/Libros")
+                ?? new List<LibroDto>();
+
+            lectores = await Http.GetFromJsonAsync<List<LectorDto>>("api/Lectores")
+                ?? new List<LectorDto>();
+
+            prestamos = await Http.GetFromJsonAsync<List<PrestamoDto>>("api/Prestamos")
+                ?? new List<PrestamoDto>();
+        }
+        catch (HttpRequestException)
+        {
+            MostrarMensaje(
+                "No se pudo conectar con el servidor. Verificá que esté funcionando.",
+                true);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            MostrarMensaje(
+                "El servidor respondió, pero no se pudieron interpretar los datos.",
+                true);
+        }
+    }
+
+
+    private async Task RegistrarPrestamo()
+    {
+        if (lectorSeleccionadoId == 0)
+        {
+            MostrarMensaje("Seleccioná un lector.", true);
+            return;
+        }
+
+        if (librosSeleccionados.Count == 0)
+        {
+            MostrarMensaje("Agregá al menos un libro.", true);
+            return;
+        }
+
+        if (registrando)
+        {
+            return;
+        }
+
+        registrando = true;
+        mensaje = "";
+        esError = false;
+
+        try
+        {
+            var solicitud = new
+            {
+                LectorId = lectorSeleccionadoId,
+                Libros = librosSeleccionados.Select(l => new
+                {
+                    l.LibroId,
+                    l.Cantidad
+                }).ToList()
+            };
+
+            var respuesta = await Http.PostAsJsonAsync(
+                "api/Prestamos/multiple", solicitud);
+
+            if (respuesta.IsSuccessStatusCode)
+            {
+                var resultado = await respuesta.Content
+                    .ReadFromJsonAsync<JsonElement>();
+
+                var mensajeApi =
+                    resultado.ValueKind == JsonValueKind.Object &&
+                    resultado.TryGetProperty("mensaje", out var mensajeProp)
+                        ? mensajeProp.GetString()
+                        : null;
+
+                var avisos = new List<string>();
+
+                if (resultado.ValueKind == JsonValueKind.Object &&
+                    resultado.TryGetProperty("avisos", out var avisosProp) &&
+                    avisosProp.ValueKind == JsonValueKind.Array)
+                {
+                    avisos = avisosProp
+                        .EnumerateArray()
+                        .Where(a => a.ValueKind == JsonValueKind.String)
+                        .Select(a => a.GetString())
+                        .Where(a => !string.IsNullOrWhiteSpace(a))
+                        .Select(a => a!)
+                        .ToList();
+                }
+
+                int cantidadRegistrada =
+                        resultado.ValueKind == JsonValueKind.Object &&
+                        resultado.TryGetProperty("cantidadEjemplares", out var cantidadProp) &&
+                        cantidadProp.TryGetInt32(out var cantidad)
+                        ? cantidad
+                        : 0;
+
+                if (avisos.Count > 0)
+                {
+                    mensaje = mensajeApi
+                        ?? "Préstamos registrados con observaciones.";
+                }
+                else if (cantidadRegistrada == 1)
+                {
+                    mensaje = "¡Préstamo registrado correctamente!";
+                }
+                else
+                {
+                    mensaje = "¡Préstamos registrados correctamente!";
+                }
+
+                if (avisos.Count > 0)
+                {
+                    mensaje += " " + string.Join(" ", avisos);
+                }
+
+                // Limpiamos el formulario y actualizamos los datos.
+                librosSeleccionados.Clear();
+                libroSeleccionadoId = 0;
+                lectorSeleccionadoId = 0;
+                cantidadSeleccionada = 1;
+
+                await CargarDatos();
+
+                _ = LimpiarMensaje();
+            }
+            else
+            {
+                var detalle = await respuesta.Content.ReadAsStringAsync();
+
+                MostrarMensaje(
+                    $"No se pudieron registrar los préstamos: {detalle}",
+                    true);
+            }
+        }
+        catch (HttpRequestException)
+        {
+            MostrarMensaje(
+                "No se pudo conectar con el servidor. Verificá que esté funcionando.",
+                true);
+        }
+        catch (JsonException)
+        {
+            MostrarMensaje(
+                "La devolución pudo haberse registrado, pero no se pudo interpretar la respuesta del servidor. Verificá el estado del préstamo antes de volver a intentarlo.",
+                true);
+        }
+        finally
+        {
+            registrando = false;
+        }
+    }
+
+    private async Task DevolverPrestamo(int prestamoId)
+    {
+        try
+        {
+            var dto = new DevolverPrestamoDto
+            {
+                FechaDevolucionReal = DateTime.Now
+            };
+
+            var respuesta = await Http.PostAsJsonAsync(
+                $"api/Prestamos/{prestamoId}/devolver", dto);
+
+            if (respuesta.IsSuccessStatusCode)
+            {
+                var resultado = await respuesta.Content
+                    .ReadFromJsonAsync<DevolucionRespuestaDto>();
+
+                MostrarMensaje(
+                    resultado == null
+                        ? "¡Devolución registrada correctamente!"
+                        : $"¡Devolución registrada! Multa: ${resultado.Multa:N2}",
+                    false);
+
+                await CargarDatos();
+
+                _ = LimpiarMensaje();
+            }
+            else
+            {
+                var detalle = await respuesta.Content.ReadAsStringAsync();
+
+                MostrarMensaje(
+                    $"No se pudo registrar la devolución: {detalle}",
+                    true);
+            }
+        }
+        catch (HttpRequestException)
+        {
+            MostrarMensaje(
+                "No se pudo conectar con el servidor. Verificá que esté funcionando.",
+                true);
+        }
+    }
+
+    private void MostrarMensaje(string texto, bool error)
+    {
+        mensaje = texto;
+        esError = error;
+    }
+
+    private async Task LimpiarMensaje()
+    {
+        await Task.Delay(10000);
+        mensaje = "";
+        await InvokeAsync(StateHasChanged);
+    }
+}

@@ -1,6 +1,7 @@
-using BibliotecaAPI.Datos;
-using Microsoft.AspNetCore.Mvc;
+using BibliotecaAPI.DTOs;
 using BibliotecaAPI.Entidades;
+using BibliotecaAPI.Repositories;
+using Microsoft.AspNetCore.Mvc;
 
 namespace BibliotecaAPI.Controllers;
 
@@ -8,44 +9,156 @@ namespace BibliotecaAPI.Controllers;
 [Route("api/[controller]")]
 public class LibrosController : ControllerBase
 {
-    private readonly BibliotecaContext _context;
+    private readonly ILibroRepository _repository;
 
-    public LibrosController(BibliotecaContext context)
+    public LibrosController(ILibroRepository repository)
     {
-        _context = context;
+        _repository = repository;
     }
 
     [HttpGet]
     public IActionResult GetLibros()
     {
-        var libros = _context.Libros.ToList();
+        var libros = _repository.ObtenerLibros();
 
-        return Ok(libros);
+        var respuesta = libros.Select(libro => new LibroRespuestaDto
+        {
+            Id = libro.Id,
+            Titulo = libro.Titulo,
+            Autor = libro.Autor,
+            CantidadEjemplares = libro.Ejemplares.Count,
+            EjemplaresDisponibles = libro.Ejemplares.Count(e => e.Disponible)
+        });
+
+        return Ok(respuesta);
     }
-
     [HttpGet("{id}")]
     public IActionResult GetLibro(int id)
     {
-        var libro = _context.Libros.Find(id);
+        var libro = _repository.ObtenerLibro(id);
 
         if (libro == null)
         {
-            return NotFound();
+            return NotFound("Libro no encontrado.");
         }
 
-        return Ok(libro);
+        var respuesta = new LibroRespuestaDto
+        {
+            Id = libro.Id,
+            Titulo = libro.Titulo,
+            Autor = libro.Autor,
+            CantidadEjemplares = libro.Ejemplares.Count,
+            EjemplaresDisponibles = libro.Ejemplares.Count(e => e.Disponible)
+        };
+
+        return Ok(respuesta);
     }
 
+
+
+
     [HttpPost]
-    public IActionResult CrearLibro(Libro libro)
+    public IActionResult CrearLibro(CrearLibroDto dto)
     {
-        _context.Libros.Add(libro);
-        _context.SaveChanges();
+        if (string.IsNullOrWhiteSpace(dto.Titulo))
+        {
+            return BadRequest("Ingresá el título del libro.");
+        }
+
+        if (dto.CantidadEjemplares < 1)
+        {
+            return BadRequest("Tenés que registrar al menos un ejemplar.");
+        }
+
+        string titulo = dto.Titulo.Trim();
+
+        string autor = string.IsNullOrWhiteSpace(dto.Autor)
+            ? "Autor desconocido"
+            : dto.Autor.Trim();
+
+        var libroExistente = _repository.ObtenerLibros()
+            .FirstOrDefault(l =>
+                l.Titulo.Trim().Equals(
+                    titulo, StringComparison.OrdinalIgnoreCase) &&
+                l.Autor.Trim().Equals(
+                    autor, StringComparison.OrdinalIgnoreCase));
+
+        if (libroExistente != null)
+        {
+            for (int i = 0; i < dto.CantidadEjemplares; i++)
+            {
+                libroExistente.Ejemplares.Add(new Ejemplar
+                {
+                    Disponible = true
+                });
+            }
+
+            _repository.GuardarCambios();
+
+            return Ok(new LibroRespuestaDto
+            {
+                Id = libroExistente.Id,
+                Titulo = libroExistente.Titulo,
+                Autor = libroExistente.Autor,
+                CantidadEjemplares = libroExistente.Ejemplares.Count,
+                EjemplaresDisponibles = libroExistente.Ejemplares.Count(
+                    e => e.Disponible)
+            });
+        }
+
+        var libro = new Libro
+        {
+            Titulo = titulo,
+            Autor = autor
+        };
+
+        for (int i = 0; i < dto.CantidadEjemplares; i++)
+        {
+            libro.Ejemplares.Add(new Ejemplar
+            {
+                Disponible = true
+            });
+        }
+
+        _repository.AgregarLibro(libro);
+        _repository.GuardarCambios();
 
         return CreatedAtAction(
             nameof(GetLibro),
             new { id = libro.Id },
-            libro
-        );
+            new LibroRespuestaDto
+            {
+                Id = libro.Id,
+                Titulo = libro.Titulo,
+                Autor = libro.Autor,
+                CantidadEjemplares = libro.Ejemplares.Count,
+                EjemplaresDisponibles = libro.Ejemplares.Count(
+                    e => e.Disponible)
+            });
     }
+    [HttpDelete("{id}")]
+    public IActionResult EliminarLibro(int id)
+    {
+        var libro = _repository.ObtenerLibro(id);
+
+        if (libro == null)
+        {
+            return NotFound("Libro no encontrado.");
+        }
+
+        if (libro.Ejemplares.Any(e => e.Prestamos.Any()))
+        {
+            return BadRequest(
+                "No se puede eliminar este libro porque tiene préstamos registrados."
+            );
+        }
+
+        _repository.EliminarLibro(libro);
+        _repository.GuardarCambios();
+
+        return Ok("Libro eliminado correctamente.");
+    }
+
+
+
 }

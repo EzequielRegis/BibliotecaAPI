@@ -1,0 +1,441 @@
+﻿@page "/lectores"
+@using System.Net.Http.Json
+@using BibliotecaAPI.Client.DTOs
+@inject HttpClient Http
+@implements IDisposable
+
+<PageTitle>Biblioteca | Lectores</PageTitle>
+
+<div class="container mt-4">
+    <h1>👥 Lectores</h1>
+    <p>Consultá los lectores registrados en la biblioteca.</p>
+
+    <hr />
+
+    @if (cargando)
+    {
+        <p>Cargando lectores...</p>
+    }
+    else if (!string.IsNullOrEmpty(mensajeError))
+    {
+        <div class="alert alert-danger">@mensajeError</div>
+
+        <button class="btn btn-outline-primary" @onclick="CargarLectores">
+            Reintentar
+        </button>
+    }
+    else
+    {
+        <h3>Lectores registrados (@lectores.Count)</h3>
+       
+@if(mostrarConfirmacionEliminar)
+        {
+            <div class="modal-fondo">
+                <div class="modal-confirmacion">
+                    <h4>Eliminar lector</h4>
+
+                    <p>
+                        ¿Estás seguro de que querés eliminar
+                        <strong>@lectores.FirstOrDefault(l => l.Id == lectorIdAEliminar)?.Nombre</strong>?
+                    </p>
+
+                    <p class="text-danger">
+                        Esta acción no se puede deshacer.
+                    </p>
+
+                    <div class="d-flex justify-content-end gap-2">
+                        <button type="button"
+                                class="btn btn-secondary"
+                                @onclick="CancelarEliminacion">
+                            Cancelar
+                        </button>
+
+                        <button type="button"
+                                class="btn btn-danger"
+                                @onclick="ConfirmarEliminacion">
+                            Eliminar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (!string.IsNullOrEmpty(mensajeEliminacion))
+        {
+            <div class="alert alert-warning" role="alert">
+                @mensajeEliminacion
+            </div>
+        }
+
+        @if (lectores.Count == 0)
+        {
+            <div class="alert alert-info">
+                Todavía no hay lectores registrados.
+            </div>
+        }
+        else
+        {
+            <div class="table-responsive"
+                 style="max-height: 400px; overflow-y: auto;">
+                <table class="table table-striped align-middle">
+                    <thead>
+                        <tr>
+                            <th>Nombre</th>
+                            <th>DNI</th>
+                            <th>Teléfono</th>
+                            <th>Libro prestado</th>
+                            <th>Estado de multa</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+
+                    <tbody>
+                        @foreach (var lector in lectores)
+                        {
+                            <tr @key="lector.Id">
+                                <td>@lector.Nombre</td>
+                                <td>@lector.DNI</td>
+                                <td>@lector.Telefono</td>
+
+                                <td>
+                                    @{
+                                        var librosPrestados = prestamos
+                                            .Where(p => p.LectorId == lector.Id && !p.EsDevuelto)
+                                            .Select(p => p.TituloLibro)
+                                            .Distinct()
+                                            .ToList();
+                                    }
+
+                                    @if (librosPrestados.Count == 0)
+                                    {
+                                        <span class="text-muted">Ninguno</span>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var titulo in librosPrestados)
+                                        {
+                                            <div>@titulo</div>
+                                        }
+                                    }
+                                </td>
+
+                                <td>
+                                    @{
+                                        var multasRegistradas = prestamos
+                                            .Where(p => p.LectorId == lector.Id)
+                                            .Sum(p => p.Multa);
+
+                                        var multasProvisionales = prestamos
+                                            .Where(p => p.LectorId == lector.Id && !p.EsDevuelto)
+                                            .Sum(p => CalcularMultaProvisional(p));
+
+                                        var totalMultas = multasRegistradas + multasProvisionales;
+                                    }
+
+                                    @if (totalMultas > 0)
+                                    {
+                                        <span class="text-danger fw-bold">
+                                            Multa: @($"${totalMultas:N0}".Replace(",", "."))
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-success">Sin multa</span>
+                                    }
+                                </td>
+
+                                <td>
+                                    <button type ="button" 
+                                            class="btn p-0 text-danger fw-bold border-0"
+                                            style="font-size: 1.4rem; line-height: 1; text-decoration: none;"
+                                            title="Eliminar lector"
+                                            @onclick="() => AbrirConfirmacionEliminar(lector.Id)">
+                                        ×
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+
+        <hr class="my-4" />
+
+        <div style="max-width: 350px; width: 100%; margin: 100px auto 0;">
+            <h3 class="mt-4">Registrar lector</h3>
+
+            <EditForm Model="nuevoLector" OnValidSubmit="RegistrarLector">
+                <div class="mb-3">
+                    <label class="form-label">Nombre completo</label>
+                    <InputText class="form-control"
+                               style="width: 200px; max-width: 100%;"
+                               @bind-Value="nuevoLector.Nombre" />
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">DNI</label>
+                    <InputText class="form-control"
+                               style="width: 200px; max-width: 100%;"
+                               maxlength="20"
+                               @bind-Value="nuevoLector.DNI" />
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Teléfono</label>
+                    <InputText class="form-control"
+                               style="width: 200px; max-width: 100%;"
+                               maxlength="15"
+                               @bind-Value="nuevoLector.Telefono" />
+                </div>
+
+                <button type="submit"
+                        class="btn btn-primary"
+                        style="min-width: 160px;"
+                        disabled="@guardando">
+                    @(guardando ? "Registrando..." : "Registrar lector")
+                </button>
+            </EditForm>
+
+            @if (!string.IsNullOrWhiteSpace(mensajeRegistro))
+            {
+                <div class="alert @(registroExitoso ? "alert-success" : "alert-danger") mt-3">
+                    @mensajeRegistro
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private List<LectorDto> lectores = new();
+    private List<PrestamoDto> prestamos = new();
+    private NuevoLectorDto nuevoLector = new();
+
+    private bool guardando = false;
+    private bool registroExitoso = false;
+    private string mensajeRegistro = "";
+
+    private bool cargando = true;
+    private string mensajeError = "";
+    private string mensajeEliminacion = "";
+    private bool mostrarConfirmacionEliminar = false;
+    private int lectorIdAEliminar = 0;
+
+    private System.Threading.Timer? temporizador;
+    private DateTime ahora = DateTime.Now;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarLectores();
+
+        temporizador = new System.Threading.Timer(_ =>
+        {
+            ahora = DateTime.Now;
+            _ = InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+    }
+
+    private async Task CargarLectores()
+    {
+        cargando = true;
+        mensajeError = "";
+        mensajeEliminacion = "";
+
+        try
+        {
+            lectores = await Http.GetFromJsonAsync<List<LectorDto>>(
+                "api/Lectores") ?? new List<LectorDto>();
+
+            prestamos = await Http.GetFromJsonAsync<List<PrestamoDto>>(
+                "api/Prestamos") ?? new List<PrestamoDto>();
+        }
+        catch (HttpRequestException)
+        {
+            mensajeError = "No se pudieron cargar los lectores y préstamos. Verificá que el servidor esté funcionando.";
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            mensajeError = "La API devolvió datos con un formato inesperado.";
+        }
+        finally
+        {
+            cargando = false;
+        }
+    }
+
+    public class LectorDto
+    {
+        public int Id { get; set; }
+        public string Nombre { get; set; } = "";
+        public string DNI { get; set; } = "";
+        public string Telefono { get; set; } = "";
+    }
+
+    public class NuevoLectorDto
+    {
+        public string Nombre { get; set; } = "";
+        public string DNI { get; set; } = "";
+        public string Telefono { get; set; } = "";
+    }
+
+    private async Task RegistrarLector()
+    {
+        mensajeRegistro = "";
+        registroExitoso = false;
+
+        if (string.IsNullOrWhiteSpace(nuevoLector.Nombre))
+        {
+            mensajeRegistro = "Ingresá el nombre del lector.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(nuevoLector.DNI))
+        {
+            mensajeRegistro = "Ingresá el DNI.";
+            return;
+        }
+
+        if (!System.Text.RegularExpressions.Regex.IsMatch(
+                nuevoLector.DNI, @"^[0-9]+$"))
+        {
+            mensajeRegistro = "El DNI debe contener solamente números.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(nuevoLector.Telefono))
+        {
+            mensajeRegistro = "Ingresá el teléfono.";
+            return;
+        }
+
+        if (!System.Text.RegularExpressions.Regex.IsMatch(
+                nuevoLector.Telefono, @"^[0-9]+$"))
+        {
+            mensajeRegistro = "El teléfono debe contener solamente números.";
+            return;
+        }
+
+        guardando = true;
+
+        try
+        {
+            var respuesta = await Http.PostAsJsonAsync(
+                "api/Lectores",
+                nuevoLector);
+
+            if (respuesta.IsSuccessStatusCode)
+            {
+                mensajeRegistro = "Lector registrado correctamente.";
+                registroExitoso = true;
+                nuevoLector = new NuevoLectorDto();
+
+                await CargarLectores();
+            }
+            else
+            {
+                var error = await respuesta.Content.ReadAsStringAsync();
+
+                mensajeRegistro = string.IsNullOrWhiteSpace(error)
+                    ? "No se pudo registrar el lector."
+                    : $"No se pudo registrar el lector: {error}";
+            }
+        }
+        catch (HttpRequestException)
+        {
+            mensajeRegistro = "No se pudo conectar con el servidor.";
+        }
+        finally
+        {
+            guardando = false;
+        }
+    }
+
+    private void AbrirConfirmacionEliminar(int lectorId)
+    {
+        lectorIdAEliminar = lectorId;
+        mensajeEliminacion = "";
+        mostrarConfirmacionEliminar = true;
+    }
+    private void CancelarEliminacion()
+    {
+        mostrarConfirmacionEliminar = false;
+        lectorIdAEliminar = 0;
+    }
+
+    private async Task ConfirmarEliminacion()
+    {
+        mostrarConfirmacionEliminar = false;
+
+        if (lectorIdAEliminar == 0)
+            return;
+
+        int id = lectorIdAEliminar;
+        lectorIdAEliminar = 0;
+
+        await EliminarLector(id);
+    }
+    private async Task EliminarLector(int lectorId)
+    {
+        var lector = lectores.FirstOrDefault(l => l.Id == lectorId);
+
+        if (lector == null)
+        {
+            return;
+        }
+
+        if (prestamos.Any(p => p.LectorId == lectorId))
+        {
+            mensajeEliminacion =
+                $"No se puede eliminar a {lector.Nombre} porque tiene préstamos registrados.";
+            return;
+        }
+
+        mensajeEliminacion = "";
+
+        try
+        {
+            var respuesta = await Http.DeleteAsync($"api/Lectores/{lectorId}");
+
+            if (respuesta.IsSuccessStatusCode)
+            {
+                await CargarLectores();
+                mensajeEliminacion = "Lector eliminado correctamente.";
+            }
+            else
+            {
+                var detalle = await respuesta.Content.ReadAsStringAsync();
+
+                mensajeEliminacion = string.IsNullOrWhiteSpace(detalle)
+                    ? "No se pudo eliminar al lector."
+                    : $"No se pudo eliminar al lector: {detalle}";
+            }
+        }
+        catch (HttpRequestException)
+        {
+            mensajeEliminacion = "No se pudo conectar con el servidor.";
+        }
+    }
+
+    private decimal CalcularMultaProvisional(PrestamoDto prestamo)
+    {
+        if (prestamo.EsDevuelto ||
+            ahora <= prestamo.FechaDevolucionPrevista)
+        {
+            return 0;
+        }
+
+        double horasRetraso = (
+            ahora - prestamo.FechaDevolucionPrevista
+        ).TotalHours;
+
+        int periodosCompletos = (int)(horasRetraso / 24);
+
+        return periodosCompletos * 5000m;
+    }
+
+    public void Dispose()
+    {
+        temporizador?.Dispose();
+    }
+}

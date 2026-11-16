@@ -1,10 +1,6 @@
 ﻿namespace BibliotecaAPI.Entidades;
 
-public class Bibliotecario
+public class Bibliotecario : EntidadBase
 {
-    public int Id { get; set; }
-
-    public string Nombre { get; set; }
-
-    public ICollection<Prestamo> Prestamos { get; set; }
+    public string Nombre { get; set; } = null!; 
 }
